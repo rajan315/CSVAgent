@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import io
 import base64
+import html as html_lib
 
 import pandas as pd
 import streamlit as st
@@ -47,50 +48,232 @@ logger = logging.getLogger(__name__)
 
 # Page config
 st.set_page_config(
-    page_title="Vesco AI - Analyze & Visualize",
-    page_icon="📈",
+    page_title="Vesco Analyst Pro",
+    page_icon="📊",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
-# UI styling
+# UI styling — force light theme + indigo/emerald palette
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.2rem;
-        font-weight: bold;
-        background: linear-gradient(90deg, #0d9488 0%, #0f766e 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.5rem;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    html, body, .stApp {
+        font-family: 'Inter', sans-serif !important;
     }
-    .chart-container {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 1rem 0;
+
+    /* ===== FORCE LIGHT THEME (overrides dark mode) ===== */
+    .stApp {
+        background-color: #f9fafb !important;
+        color: #111827 !important;
     }
-    .data-folder-info {
-        background: #eff6ff;
-        border: 1px solid #93c5fd;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
+    .stApp p, .stApp span, .stApp li, .stApp td, .stApp th,
+    .stApp label, .stApp h1, .stApp h2, .stApp h3,
+    .stApp h4, .stApp h5, .stApp h6,
+    .stMarkdown, [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdownContainer"] p {
+        color: #111827 !important;
     }
+    .stApp a { color: #4f46e5 !important; }
+    .stApp code { color: #1f2937 !important; background: #f3f4f6 !important; }
+
+    /* Sidebar — light background + dark text */
     section[data-testid="stSidebar"] {
-        display: none;
+        background-color: white !important;
+        color: #111827 !important;
     }
-    .chart-suggestion-box {
-        background: #ecfdf5;
-        border-left: 4px solid #10b981;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 4px;
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] label {
+        color: #111827 !important;
     }
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+        padding-top: 0.25rem;
+    }
+    section[data-testid="stSidebar"] hr {
+        margin: 0.4rem 0 !important;
+        border-color: #e5e7eb !important;
+    }
+
+    /* Hide default Streamlit chrome */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+
+    /* Sidebar buttons — compact text-link style, LEFT aligned */
+    section[data-testid="stSidebar"] .stButton > button {
+        text-align: left !important;
+        justify-content: flex-start !important;
+        font-size: 0.76rem !important;
+        color: #374151 !important;
+        background: transparent !important;
+        border: 1px solid transparent !important;
+        border-radius: 6px !important;
+        padding: 0.35rem 0.6rem !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button p,
+    section[data-testid="stSidebar"] .stButton > button span,
+    section[data-testid="stSidebar"] .stButton > button div {
+        text-align: left !important;
+        color: inherit !important;
+        width: 100%;
+    }
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        background: #eef2ff !important;
+        color: #4338ca !important;
+        border-color: #e0e7ff !important;
+    }
+
+    /* ===== Assistant chat messages — white card with BLACK text ===== */
+    [data-testid="stChatMessage"] {
+        background: white !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 16px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+        color: #111827 !important;
+    }
+    [data-testid="stChatMessage"] p,
+    [data-testid="stChatMessage"] span,
+    [data-testid="stChatMessage"] li,
+    [data-testid="stChatMessage"] td,
+    [data-testid="stChatMessage"] th,
+    [data-testid="stChatMessage"] strong,
+    [data-testid="stChatMessage"] em,
+    [data-testid="stChatMessage"] h1,
+    [data-testid="stChatMessage"] h2,
+    [data-testid="stChatMessage"] h3 {
+        color: #111827 !important;
+    }
+
+    /* Tabs styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0;
+        background: white !important;
+        border-radius: 8px;
+        padding: 4px;
+        border: 1px solid #e5e7eb;
+    }
+    .stTabs [data-baseweb="tab"] {
+        color: #374151 !important;
+        background: transparent !important;
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-size: 0.85rem;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #4f46e5 !important;
+        color: white !important;
+    }
+    .stTabs [aria-selected="true"] p,
+    .stTabs [aria-selected="true"] span {
+        color: white !important;
+    }
+
+    /* Status / progress — don't override internal layout */
+    [data-testid="stStatus"] {
+        border-radius: 12px;
+    }
+    [data-testid="stStatus"] p,
+    [data-testid="stStatus"] span,
+    [data-testid="stStatus"] label {
+        color: #111827 !important;
+    }
+
     /* Constrain chart size */
     .stPlotlyChart, .element-container:has(canvas) {
         max-width: 650px !important;
+    }
+
+    /* ===== User message bubble (right-aligned, indigo) ===== */
+    .user-bubble {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-bottom: 0.75rem;
+        padding: 0 0.5rem;
+    }
+    .user-bubble .bubble {
+        background: #4f46e5 !important;
+        color: white !important;
+        padding: 10px 16px;
+        border-radius: 16px 16px 4px 16px;
+        max-width: 70%;
+        line-height: 1.55;
+        font-size: 0.88rem;
+        word-wrap: break-word;
+    }
+    .user-bubble .avatar {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #4f46e5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white !important;
+        flex-shrink: 0;
+        font-size: 0.8rem;
+    }
+
+    /* ===== Dataset card (compact) ===== */
+    .ds-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 5px 8px;
+        background: #f9fafb !important;
+        border-radius: 6px;
+        border: 1px solid #e5e7eb;
+        margin-bottom: 4px;
+        font-size: 0.75rem;
+    }
+    .ds-card .ds-name {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: #374151 !important;
+        font-weight: 500;
+    }
+    .ds-card .ds-rows {
+        color: #6b7280 !important;
+        font-size: 0.65rem;
+        font-weight: 500;
+    }
+
+    /* ===== Reduce spacing in chat area ===== */
+    [data-testid="stChatMessage"] {
+        margin-bottom: 0.5rem !important;
+    }
+
+    /* Chat input area — tight spacing */
+    [data-testid="stBottom"] {
+        background: #f9fafb !important;
+    }
+    [data-testid="stBottom"] > div {
+        gap: 0 !important;
+        padding-bottom: 2px !important;
+    }
+    [data-testid="stChatInput"] textarea {
+        color: #111827 !important;
+        background: white !important;
+    }
+
+    /* ===== Footer pinned right below chat input ===== */
+    [data-testid="stBottom"] > div::after {
+        content: "Powered by Vesco  •  AI can make mistakes. Verify important numbers.";
+        display: block;
+        text-align: center;
+        font-size: 0.68rem;
+        color: #9ca3af !important;
+        padding: 2px 0 0 0;
+        margin-top: 0;
+    }
+
+    /* Expander / selectbox in sidebar — force light */
+    section[data-testid="stSidebar"] [data-testid="stExpander"] {
+        background: #f9fafb !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -633,9 +816,9 @@ def run_agent(agent_executor: AgentExecutor, user_input: str, chat_history_list:
 # =============================================================================
 
 def main():
-    st.markdown('<h1 class="main-header">📈 Vesco AI </h1>', unsafe_allow_html=True)
-
+    # =========================================================================
     # Initialize session state
+    # =========================================================================
     if "chat_history_react" not in st.session_state:
         st.session_state.chat_history_react = []
     if "current_dfs" not in st.session_state:
@@ -644,170 +827,279 @@ def main():
         st.session_state.primary_key = None
     if "data_loaded" not in st.session_state:
         st.session_state.data_loaded = False
+    if "pending_query" not in st.session_state:
+        st.session_state.pending_query = None
 
-    # Auto-load data
+    # =========================================================================
+    # Auto-load data (before rendering so sidebar can show dataset info)
+    # =========================================================================
     if not st.session_state.data_loaded:
-        with st.spinner("Loading data from data/ folder..."):
-            combined = load_all_data_from_folder("data")
-            if combined:
-                st.session_state.current_dfs = combined
-                st.session_state.primary_key = next(iter(combined))
-                st.session_state.data_loaded = True
-                logger.info(f"Auto-loaded {len(combined)} datasets")
+        combined = load_all_data_from_folder("data")
+        if combined:
+            st.session_state.current_dfs = combined
+            st.session_state.primary_key = next(iter(combined))
+            st.session_state.data_loaded = True
+            logger.info(f"Auto-loaded {len(combined)} datasets")
 
     dfs_dict = st.session_state.current_dfs
 
-    # No data screen
-    if not dfs_dict:
-        st.markdown('<div class="data-folder-info">', unsafe_allow_html=True)
-        st.markdown("### 📁 No data found in `data/` folder")
+    # =========================================================================
+    # Sidebar (matches TSX layout)
+    # =========================================================================
+    # --- Branding (compact) ---
+    with st.sidebar:
         st.markdown("""
-        **To get started:**
-        1. Create a `data/` folder in the same directory as this script
-        2. Add your CSV or Excel files
-        3. Refresh this page
-        
-        **Supported formats:** CSV (`.csv`), Excel (`.xlsx`, `.xls`)
-        """)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        if st.button("🔄 Reload data"):
-            st.session_state.data_loaded = False
-            st.rerun()
-        
+        <div style="display:flex; align-items:center; gap:8px; padding:2px 0 6px 0;">
+            <span style="font-size:1.15rem;">📊</span>
+            <span style="font-weight:700; color:#4338ca; font-size:0.95rem;">Vesco Analyst Pro</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.divider()
+
+        # --- Active Datasets ---
+        st.markdown("""
+        <p style="font-size:0.62rem; font-weight:600; color:#6b7280;
+           text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">
+           Active Datasets</p>
+        """, unsafe_allow_html=True)
+
+        if not st.session_state.data_loaded:
+            st.markdown("""
+            <div style="display:flex; align-items:center; gap:8px; padding:8px; color:#9ca3af; font-size:0.85rem;">
+                ⏳ Loading datasets…
+            </div>""", unsafe_allow_html=True)
+        elif not dfs_dict:
+            st.markdown("""
+            <div style="padding:8px; color:#ef4444; font-size:0.8rem; font-style:italic;">
+                No datasets loaded. Add files to data/ folder.
+            </div>""", unsafe_allow_html=True)
+        else:
+            icon_map = {"visit": "👤", "sales": "📈", "order": "📄",
+                        "receipt": "🗄️", "customer": "👥", "account": "👥"}
+            for key, df in dfs_dict.items():
+                icon = "📋"
+                for keyword, emoji in icon_map.items():
+                    if keyword in key.lower():
+                        icon = emoji
+                        break
+                display_name = (key.replace("::", " › ")
+                                   .replace(".xlsx", "")
+                                   .replace(".csv", "")
+                                   .replace(".xls", ""))
+                st.markdown(f"""
+                <div class="ds-card">
+                    <div class="ds-name"><span>{icon}</span><span>{display_name}</span></div>
+                    <span class="ds-rows">{df.shape[0]:,} rows</span>
+                </div>""", unsafe_allow_html=True)
+
+        st.divider()
+
+        # --- Quick Analysis (suggested queries) ---
+        st.markdown("""
+        <p style="font-size:0.62rem; font-weight:600; color:#6b7280;
+           text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">
+           Quick Analysis</p>
+        """, unsafe_allow_html=True)
+
+        suggested_queries = [
+            "How many visits did Ajay do in November?",
+            "Top 5 customers by sales",
+            "Which salesman has worst collection efficiency?",
+            "Show me the aging summary for Krishna Cycle Stores",
+            "What is the visit conversion rate for Nitin?",
+        ]
+        for i, query in enumerate(suggested_queries):
+            if st.button(query, key=f"sq_{i}", use_container_width=True):
+                st.session_state.pending_query = query
+                st.rerun()
+
+        st.divider()
+
+        # --- Actions ---
+        act_col1, act_col2 = st.columns(2)
+        with act_col1:
+            if st.button("🔄 Reload", key="btn_reload", use_container_width=True):
+                st.session_state.data_loaded = False
+                st.session_state.current_dfs = {}
+                st.session_state.primary_key = None
+                st.rerun()
+        with act_col2:
+            if st.button("🗑️ Clear", key="btn_clear", use_container_width=True):
+                st.session_state.chat_history_react = []
+                st.rerun()
+
+        # --- Status footer (compact) ---
+        status_label = ("Online" if st.session_state.data_loaded and dfs_dict
+                        else "Loading…" if not st.session_state.data_loaded
+                        else "No data")
+        ds_count = len(dfs_dict)
+        st.markdown(f"""
+        <div style="display:flex; align-items:center; gap:8px; padding:6px 0 2px 0;">
+            <div style="width:26px; height:26px; border-radius:50%; background:#e0e7ff;
+                 display:flex; align-items:center; justify-content:center;
+                 color:#4f46e5; font-weight:700; font-size:0.6rem;">AI</div>
+            <div>
+                <div style="font-size:0.78rem; font-weight:500; color:#111827;">Vesco AI</div>
+                <div style="font-size:0.68rem; color:#6b7280;">{status_label} • {ds_count} datasets</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # =========================================================================
+    # Main content area
+    # =========================================================================
+
+    # No-data screen
+    if not dfs_dict and st.session_state.data_loaded:
+        st.markdown("""
+        <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:12px;
+             padding:2rem; margin:2rem auto; max-width:600px; text-align:center;">
+            <h3 style="margin-top:0; color:#1e3a5f;">📁 No data found</h3>
+            <p style="color:#4b5563;">
+                Add CSV or Excel files to the <code>data/</code> folder and click
+                <strong>Reload</strong> in the sidebar.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         return
 
-    # Main interface
-    primary_key = st.session_state.primary_key
-    df = dfs_dict[primary_key]
+    if not st.session_state.data_loaded:
+        st.info("⏳ Loading datasets from data/ folder…")
+        return
 
-    # Top controls
-    col1, col2, col3 = st.columns([3, 1, 1])
-    
-    with col1:
-        st.success(f"✅ Loaded {len(dfs_dict)} dataset(s)")
-    
-    with col2:
-        if st.button("🔄 Reload"):
-            st.session_state.data_loaded = False
-            st.session_state.current_dfs = {}
-            st.session_state.primary_key = None
-            st.rerun()
-    
-    with col3:
-        if st.button("🗑️ Clear chat"):
-            st.session_state.chat_history_react = []
-            st.rerun()
+    # --- Helper: right-aligned user bubble ---
+    def _user_bubble(text: str):
+        safe = html_lib.escape(text)
+        st.markdown(f'''
+        <div class="user-bubble">
+            <div class="bubble">{safe}</div>
+            <div class="avatar">👤</div>
+        </div>''', unsafe_allow_html=True)
 
-    st.divider()
+    # ---- Tabs: Agent Chat | Data Preview ----
+    tab_chat, tab_data = st.tabs(["🤖 Agent Chat", "📊 Data Preview"])
 
-    # Tabs
-    tabs = st.tabs(["🤖 Agent Chat", "📊 Data Preview"])
-
-    with tabs[0]:
-        # Chat container
+    with tab_chat:
+        # Display chat history
         chat_container = st.container()
-        
         with chat_container:
-            if st.session_state.chat_history_react:
-                for i, msg in enumerate(st.session_state.chat_history_react):
+            if not st.session_state.chat_history_react:
+                with st.chat_message("assistant", avatar="📊"):
+                    datasets_info = "\n".join([
+                        f"- **{k}**: {v.shape[0]:,} rows, {v.shape[1]} columns"
+                        for k, v in dfs_dict.items()
+                    ])
+                    st.markdown(
+                        f"**Hello! I am your Business Intelligence Analyst.**\n\n"
+                        f"Data loaded successfully!\n\n{datasets_info}\n\n"
+                        f"How can I help you analyze this data?"
+                    )
+            else:
+                for msg in st.session_state.chat_history_react:
                     if msg["role"] == "user":
-                        with st.chat_message("user"):
-                            st.markdown(msg["content"])
+                        _user_bubble(msg["content"])
                     else:
-                        with st.chat_message("assistant"):
+                        with st.chat_message("assistant", avatar="📊"):
                             st.markdown(msg.get("content", ""))
-                            
-                            # Show chart if available - smaller size
                             if "chart" in msg and msg["chart"] is not None:
-                                col1, col2, col3 = st.columns([0.5, 2, 0.5])
-                                with col2:
-                                    st.pyplot(msg["chart"], width='content')
-            else:
-                st.info("👋 Start a conversation! Ask me anything about your data.")
-        
-        # Chat input
-        user_input = st.chat_input("Ask me anything about your data...")
-        
-        if user_input:
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            if not api_key:
-                st.error("⚠️ ANTHROPIC_API_KEY not configured.")
-            else:
-                executor, err = create_agent_executor(dfs_dict)
-                if err:
-                    st.error(f"⚠️ {err}")
-                else:
-                    # Add user message
-                    st.session_state.chat_history_react.append({
-                        "role": "user",
-                        "content": user_input
-                    })
+                                col_l, col_c, col_r = st.columns([0.5, 2, 0.5])
+                                with col_c:
+                                    st.pyplot(msg["chart"])
 
-                    # Show user question immediately in chat
-                    with st.chat_message("user"):
-                        st.markdown(user_input)
+    with tab_data:
+        if dfs_dict:
+            primary_key = st.session_state.primary_key or next(iter(dfs_dict))
+            if len(dfs_dict) > 1:
+                selected_key = st.selectbox(
+                    "Select dataset",
+                    options=list(dfs_dict.keys()),
+                    index=list(dfs_dict.keys()).index(primary_key) if primary_key in dfs_dict else 0,
+                    key="data_preview_select",
+                )
+                if selected_key != primary_key:
+                    st.session_state.primary_key = selected_key
+                    primary_key = selected_key
+            preview_df = dfs_dict[primary_key]
+            st.dataframe(preview_df.head(100), use_container_width=True)
+            st.caption(f"Showing first 100 rows · Total: {preview_df.shape[0]:,} rows × {preview_df.shape[1]} columns")
+        else:
+            st.info("No datasets loaded.")
 
-                    # Show progress during analysis
-                    with st.status("Analyzing...", expanded=True) as status:
-                        progress = st.progress(0, text="Starting analysis...")
+    # --- Input handling (always visible, outside tabs) ---
+    chat_input_value = st.chat_input("Ask a question about sales, visits, or accounts…")
 
-                        # Step 1: Run agent (0% -> 50%)
-                        progress.progress(10, text="Querying data and running code...")
-                        raw_output = run_agent(
-                            executor,
-                            user_input,
-                            [m for m in st.session_state.chat_history_react[:-1] if m["role"] in ["user", "assistant"]]
-                        )
-                        progress.progress(50, text="Data analysis complete. Formatting response...")
+    # Pick up a pending query from sidebar suggested buttons
+    user_input = chat_input_value
+    if not user_input and st.session_state.get("pending_query"):
+        user_input = st.session_state.pending_query
+        st.session_state.pending_query = None
 
-                        # Step 2: Format output (50% -> 75%)
-                        formatted_output, data_dict = format_agent_output(user_question=user_input, raw_output=raw_output, dfs_dict=dfs_dict, executor=executor)
-                        progress.progress(75, text="Checking if a chart would be helpful...")
+    if user_input:
+        if not dfs_dict:
+            st.error("No data loaded. Add files to data/ folder and reload.")
+            return
 
-                        # Step 3: Chart detection & generation (75% -> 100%)
-                        chart_intent = detect_chart_opportunity(user_input, raw_output)
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            st.error("⚠️ ANTHROPIC_API_KEY not configured in .env file.")
+            return
 
-                        chart_fig = None
-                        if chart_intent:
-                            progress.progress(85, text="Generating chart...")
-                            chart_code = generate_chart_code(user_input, chart_intent, dfs_dict, raw_data=raw_output)
-                            if chart_code:
-                                chart_fig = execute_chart_code(chart_code, dfs_dict)
+        executor, err = create_agent_executor(dfs_dict)
+        if err:
+            st.error(f"⚠️ {err}")
+            return
 
-                        progress.progress(100, text="Done!")
-                        status.update(label="Analysis complete", state="complete", expanded=False)
-                    
-                    # Add assistant message with chart
-                    st.session_state.chat_history_react.append({
-                        "role": "assistant",
-                        "content": formatted_output,
-                        "chart": chart_fig
-                    })
-                    
-                    st.rerun()
+        # Add user message to history
+        st.session_state.chat_history_react.append({
+            "role": "user",
+            "content": user_input,
+        })
 
-    with tabs[1]:
-        st.subheader("Data Preview")
-        
-        # Dataset selector
-        if len(dfs_dict) > 1:
-            st.markdown("**Select dataset:**")
-            selected_key = st.selectbox(
-                "Dataset",
-                options=list(dfs_dict.keys()),
-                index=list(dfs_dict.keys()).index(primary_key) if primary_key in dfs_dict else 0,
-                key="primary_key_select",
-                label_visibility="collapsed",
+        # Show user message immediately
+        _user_bubble(user_input)
+
+        # Process with progress indicator
+        with st.status("Analyzing your data…", expanded=True) as status:
+            progress = st.progress(0, text="Starting analysis…")
+
+            progress.progress(10, text="Querying data and running code…")
+            raw_output = run_agent(
+                executor,
+                user_input,
+                [m for m in st.session_state.chat_history_react[:-1]
+                 if m["role"] in ["user", "assistant"]],
             )
-            if selected_key != primary_key:
-                st.session_state.primary_key = selected_key
-                df = dfs_dict[selected_key]
-                st.rerun()
-        
-        st.caption(f"**{primary_key}**")
-        st.dataframe(df.head(100), width='stretch')
-        st.caption(f"Showing first 100 rows • Total: {df.shape[0]} rows × {df.shape[1]} columns")
+            progress.progress(50, text="Data analysis complete. Formatting response…")
+
+            formatted_output, data_dict = format_agent_output(
+                user_question=user_input,
+                raw_output=raw_output,
+                dfs_dict=dfs_dict,
+                executor=executor,
+            )
+            progress.progress(75, text="Checking if a chart would be helpful…")
+
+            chart_intent = detect_chart_opportunity(user_input, raw_output)
+            chart_fig = None
+            if chart_intent:
+                progress.progress(85, text="Generating chart…")
+                chart_code = generate_chart_code(
+                    user_input, chart_intent, dfs_dict, raw_data=raw_output)
+                if chart_code:
+                    chart_fig = execute_chart_code(chart_code, dfs_dict)
+
+            progress.progress(100, text="Done!")
+            status.update(label="Analysis complete", state="complete", expanded=False)
+
+        # Save assistant response
+        st.session_state.chat_history_react.append({
+            "role": "assistant",
+            "content": formatted_output,
+            "chart": chart_fig,
+        })
+
+        st.rerun()
 
 
 if __name__ == "__main__":
